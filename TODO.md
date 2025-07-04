@@ -1,5 +1,23 @@
 # TODO List
 
+## High Priority Tasks 🔴
+
+### Input Data Clarification
+- [ ] Clarify input data format and requirements
+  - Document what the framework is actually looking for in input files
+  - Explain difference between raw features vs classifier predictions
+  - Add clear examples of expected CSV format
+  - Update examples to show realistic input data structure
+  - Add input data validation with clear error messages
+
+### Output Location Configuration
+- [ ] Add configurable output location specification
+  - Allow users to specify custom output directories via CLI flags
+  - Support environment variables for default output paths
+  - Add output path configuration in JSON config files
+  - Ensure all examples respect custom output locations
+  - Update documentation with output path configuration examples
+
 ## Completed ✅
 - [x] Fix early stopping to restore best weights when training stops early
 - [x] Add dedicated PredictSingle() method for efficient single predictions
