@@ -34,9 +34,15 @@ func (de *DifferentialEvolution) Optimize(objectiveFunc ObjectiveFunc, numWeight
 	
 	rng := rand.New(rand.NewSource(config.RandomSeed))
 	
+	// Adjust min weight if enforcing non-zero
+	minWeight := config.MinWeight
+	if config.EnforceNonZero && minWeight <= 0 {
+		minWeight = 0.01
+	}
+	
 	// Initialize population
 	population := InitializePopulation(config.PopulationSize, numWeights, 
-		config.MinWeight, config.MaxWeight, rng)
+		minWeight, config.MaxWeight, rng)
 	
 	// Evaluate initial population
 	EvaluatePopulation(population, objectiveFunc)
@@ -65,7 +71,7 @@ func (de *DifferentialEvolution) Optimize(objectiveFunc ObjectiveFunc, numWeight
 				population[r3].Weights,
 				config.MutationFactor,
 				config.CrossoverProb,
-				config.MinWeight,
+				minWeight,  // Use adjusted min weight
 				config.MaxWeight,
 				rng,
 			)

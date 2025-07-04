@@ -130,3 +130,35 @@ func exp(x float64) float64 {
 	}
 	return result
 }
+
+// RandomClassifier returns random predictions - useful as a baseline
+type RandomClassifier struct {
+	Name string
+	prob float64
+	seed int64
+	rng  *rand.Rand
+}
+
+// NewRandomClassifier creates a classifier that returns random predictions
+func NewRandomClassifier(name string, prob float64, seed int64) *RandomClassifier {
+	return &RandomClassifier{
+		Name: name,
+		prob: prob,
+		seed: seed,
+		rng:  rand.New(rand.NewSource(seed)),
+	}
+}
+
+// Predict returns random predictions
+func (rc *RandomClassifier) Predict(samples [][]float64) ([]float64, error) {
+	predictions := make([]float64, len(samples))
+	for i := range predictions {
+		predictions[i] = rc.rng.Float64()
+	}
+	return predictions, nil
+}
+
+// GetName returns the model name
+func (rc *RandomClassifier) GetName() string {
+	return rc.Name
+}

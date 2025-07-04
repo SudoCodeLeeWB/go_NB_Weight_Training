@@ -33,6 +33,9 @@ type Config struct {
 	MutationFactor float64 // For differential evolution
 	CrossoverProb  float64 // For differential evolution
 	
+	// Enforce non-zero weights
+	EnforceNonZero bool
+	
 	// Callback for progress updates
 	Callback ProgressCallback
 }
@@ -77,6 +80,11 @@ type Population []Individual
 func InitializePopulation(size, numWeights int, minWeight, maxWeight float64, rng *rand.Rand) Population {
 	pop := make(Population, size)
 	
+	// Ensure minWeight is not exactly 0 for multiplicative ensembles
+	if minWeight == 0 {
+		minWeight = 0.01
+	}
+	
 	for i := range pop {
 		weights := make([]float64, numWeights)
 		for j := range weights {
@@ -108,6 +116,21 @@ func (pop Population) FindBest() Individual {
 
 // ClipWeight ensures weight is within bounds
 func ClipWeight(weight, minWeight, maxWeight float64) float64 {
+	if weight < minWeight {
+		return minWeight
+	}
+	if weight > maxWeight {
+		return maxWeight
+	}
+	return weight
+}
+
+// ClipWeightWithEnforcement ensures weight is within bounds and optionally enforces non-zero
+func ClipWeightWithEnforcement(weight, minWeight, maxWeight float64, enforceNonZero bool) float64 {
+	if enforceNonZero && minWeight <= 0 {
+		minWeight = 0.01 // Enforce minimum non-zero weight
+	}
+	
 	if weight < minWeight {
 		return minWeight
 	}

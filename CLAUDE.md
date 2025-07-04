@@ -73,42 +73,89 @@ pkg/
 ## Current State & Known Issues
 
 ### Production Readiness
-- ✅ Fixed: Model persistence, probability calibration, input validation, memory efficiency
-- ❌ Pending: Early stopping bug (best weights not restored)
-- ⚠️ Missing: Feature preprocessing, sparse data support, monitoring hooks, distributed training
+- ✅ Fixed: Early stopping, model persistence, probability calibration, input validation, memory efficiency
+- ✅ Added: Three-way split for calibration, multiple calibration methods, PR-specific threshold optimization
+- ✅ Added: Single prediction API, caching support, weight enforcement options
+- ⚠️ API server removed per user request (local use only)
 
-### Active Development Focus (from todos.txt)
-- Critical production fixes
-- API server implementation (gRPC/REST)
-- Monitoring/observability (Prometheus, OpenTelemetry)
-- Containerization and Kubernetes deployment
-- Performance optimizations (GPU support, caching)
-
-### Important Bug
-Early stopping doesn't restore best weights. Fix needed in `trainer.go`:
-```go
-if t.earlyStopping != nil && t.earlyStopping.bestWeights != nil {
-    result.BestWeights = t.earlyStopping.bestWeights
-}
-```
+### Recent Major Improvements
+1. **Early Stopping Fixed**: Now properly saves and restores best weights
+2. **Calibration System**: Multiple methods (beta, isotonic, platt, none) to handle score distributions
+3. **Three-Way Split**: Prevents data leakage (train/calibration/test)
+4. **Threshold Optimization**: PR-specific metrics (precision, MCC, PR-distance)
+5. **Weight Control**: Option to prevent model exclusion (enforce_non_zero)
 
 ## Data Requirements
-- Input format: CSV with classifier predictions as features
+- **IMPORTANT**: Input features are RAW features, NOT classifier predictions
+- The framework trains models that implement the Model interface
 - Labels must be binary (0 or 1)
-- Predictions should be probabilities between 0 and 1
 - Example format:
   ```csv
-  classifier1_pred,classifier2_pred,classifier3_pred,label
+  feature1,feature2,feature3,label
   0.8,0.7,0.9,1
   0.2,0.3,0.1,0
   ```
+- Models process raw features and return probabilities [0,1]
 
 ## Configuration
-The framework uses a comprehensive configuration system with:
-- `DataConfig`: Validation split, K-folds, stratified sampling
-- `TrainingConfig`: Max epochs, batch size, optimization metric
-- `OptimizerConfig`: DE algorithm parameters, weight bounds
-- `EarlyStopping`: Patience, min delta, monitoring metric
-- `Visualization`: Output formats, report generation
 
-Default configuration available via `framework.DefaultConfig()`.
+### Core Configuration
+- `DataConfig`: 
+  - `validation_split`: Train/test split ratio
+  - `k_folds`: Number of cross-validation folds (1 = simple split)
+  - `use_three_way_split`: Enable train/calibration/test split
+  - `calibration_split`: Size of calibration set (with three-way)
+- `TrainingConfig`:
+  - `optimization_metric`: "pr_auc" (default), "roc_auc", "precision", "recall"
+  - `enable_calibration`: Apply probability calibration
+  - `calibration_method`: "beta" (default), "isotonic", "platt", "none"
+  - `threshold_metric`: "precision" (default), "f1", "recall", "mcc", "pr_distance"
+- `OptimizerConfig`:
+  - `min_weight`: Minimum weight (0.01 default to avoid model exclusion)
+  - `max_weight`: Maximum weight (2.0 default)
+  - `enforce_non_zero`: Prevent models from being excluded (false default)
+- `EarlyStopping`: 
+  - `patience`: Number of epochs without improvement before stopping
+  - `monitor`: Metric to monitor (e.g., "val_pr_auc")
+
+### Calibration Methods
+1. **Beta** (default): Preserves score distribution, maps class means to [0.2, 0.8]
+2. **Isotonic**: Non-parametric, handles complex patterns
+3. **Platt**: Sigmoid transformation (can be too aggressive)
+4. **None**: Simple min-max scaling
+
+### Weight Initialization & Zero Weights
+- Initial weights: Random from [min_weight, max_weight]
+- Zero weight means model^0 = 1 (model excluded)
+- Set `enforce_non_zero: true` to keep all models active
+- Optimizer may set weights to 0 if model hurts performance
+
+Default configuration: `framework.DefaultConfig()`
+
+## Key Improvements Summary
+
+### 1. Calibration System
+- **Problem**: Naive Bayes multiplication creates tiny scores (e.g., 0.5^8 = 0.0039)
+- **Solution**: Multiple calibration methods to map scores to proper probabilities
+- **Result**: Threshold 0.5 becomes meaningful, predictions spread across [0,1]
+
+### 2. Three-Way Split
+- **Problem**: Data leakage when calibrating and finding threshold on same validation set
+- **Solution**: Train (60%) → Calibration (20%) → Test (20%)
+- **Result**: Unbiased threshold selection, better generalization
+
+### 3. PR-Specific Threshold Optimization
+- **Problem**: Default 0.5 threshold often suboptimal for imbalanced data
+- **Solution**: Find optimal threshold based on precision, F1, MCC, or PR-distance
+- **Result**: Better precision-recall trade-offs for production use
+
+### 4. Weight Control
+- **Problem**: Models might be excluded (weight=0) when needed for business reasons
+- **Solution**: `enforce_non_zero` option to keep all models active
+- **Result**: Full control over ensemble composition
+
+### 5. Results Output
+- Shows calibration method used
+- Reports optimal threshold and metric used
+- Displays performance at optimal threshold
+- Saves all information in JSON and summary files

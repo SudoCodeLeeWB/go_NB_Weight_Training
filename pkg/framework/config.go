@@ -32,6 +32,12 @@ type DataConfig struct {
 	// Validation split ratio (0-1)
 	ValidationSplit float64 `json:"validation_split"`
 	
+	// Calibration split ratio (0-1) - only used with UseThreeWaySplit
+	CalibrationSplit float64 `json:"calibration_split"`
+	
+	// Whether to use three-way split (train/calibration/test)
+	UseThreeWaySplit bool `json:"use_three_way_split"`
+	
 	// Number of folds for cross-validation
 	KFolds int `json:"k_folds"`
 	
@@ -58,6 +64,11 @@ type TrainingConfig struct {
 	
 	// Log interval (epochs)
 	LogInterval int `json:"log_interval"`
+	
+	// Calibration settings
+	EnableCalibration bool   `json:"enable_calibration"`
+	CalibrationMethod string `json:"calibration_method"` // "platt", "isotonic", "beta", "none"
+	ThresholdMetric   string `json:"threshold_metric"` // "f1", "precision", "recall", "accuracy", "mcc", "pr_distance"
 }
 
 // OptimizerConfig holds optimizer-related configuration
@@ -77,6 +88,9 @@ type OptimizerConfig struct {
 	// Weight bounds
 	MinWeight float64 `json:"min_weight"`
 	MaxWeight float64 `json:"max_weight"`
+	
+	// Enforce non-zero weights (prevents models from being completely ignored)
+	EnforceNonZero bool `json:"enforce_non_zero"`
 }
 
 // EarlyStoppingConfig holds early stopping configuration
@@ -127,13 +141,16 @@ func DefaultConfig() *Config {
 			OptimizationMetric: "pr_auc",
 			Verbose:            true,
 			LogInterval:        10,
+			EnableCalibration:  true,
+			CalibrationMethod:  "beta",
+			ThresholdMetric:    "precision",
 		},
 		OptimizerConfig: OptimizerConfig{
 			Type:           "differential_evolution",
 			PopulationSize: 50,
 			MutationFactor: 0.8,
 			CrossoverProb:  0.9,
-			MinWeight:      0.0,
+			MinWeight:      0.01,  // Avoid 0 to prevent models being ignored
 			MaxWeight:      2.0,
 		},
 		EarlyStopping: &EarlyStoppingConfig{

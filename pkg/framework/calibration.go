@@ -8,9 +8,10 @@ import (
 // CalibratedEnsemble wraps ensemble with probability calibration
 type CalibratedEnsemble struct {
 	*EnsembleModel
-	UseLogSpace     bool
-	ScoreRange      ScoreRange
-	CalibrationFunc func(float64) float64
+	UseLogSpace      bool
+	ScoreRange       ScoreRange
+	CalibrationFunc  func(float64) float64
+	CalibrationMethod string // "platt", "isotonic", "beta", "none"
 }
 
 // ScoreRange tracks min/max scores for normalization
@@ -110,8 +111,22 @@ func (ce *CalibratedEnsemble) FitCalibration(samples [][]float64, labels []float
 	// Fit score range
 	ce.ScoreRange = fitScoreRange(scores)
 	
-	// Fit calibration function (Platt scaling)
-	ce.CalibrationFunc = fitPlattScaling(scores, labels)
+	// Fit calibration function based on method
+	switch ce.CalibrationMethod {
+	case "platt":
+		ce.CalibrationFunc = fitPlattScaling(scores, labels)
+	case "isotonic":
+		ce.CalibrationFunc = fitIsotonicRegression(scores, labels)
+	case "beta":
+		ce.CalibrationFunc = fitBetaCalibration(scores, labels)
+	case "none":
+		// Just use min-max normalization
+		ce.CalibrationFunc = nil
+	default:
+		// Default to beta calibration (less aggressive than Platt)
+		ce.CalibrationMethod = "beta"
+		ce.CalibrationFunc = fitBetaCalibration(scores, labels)
+	}
 	
 	return nil
 }
@@ -228,6 +243,8 @@ func FindOptimalThreshold(predictions, labels []float64, metric string) (float64
 		precision float64
 		recall    float64
 		f1        float64
+		mcc       float64  // Matthews Correlation Coefficient
+		distance  float64  // Distance from perfect point
 	}
 	
 	// Try different thresholds
@@ -262,22 +279,47 @@ func FindOptimalThreshold(predictions, labels []float64, metric string) (float64
 		f1 := 2 * precision * recall / (precision + recall + 1e-10)
 		accuracy := (tp + tn) / float64(len(predictions))
 		
+		// Matthews Correlation Coefficient
+		mcc := (tp*tn - fp*fn) / math.Sqrt((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn) + 1e-10)
+		
+		// Distance from perfect point (1, 1) in PR space
+		distance := math.Sqrt(math.Pow(1-precision, 2) + math.Pow(1-recall, 2))
+		
 		r := result{
 			threshold: threshold,
 			precision: precision,
 			recall:    recall,
 			f1:        f1,
+			mcc:       mcc,
+			distance:  distance,
 		}
 		
 		switch metric {
 		case "f1":
 			r.score = f1
 		case "precision":
-			r.score = precision
+			// For precision, only consider if recall is at least 10%
+			if recall >= 0.1 {
+				r.score = precision
+			} else {
+				r.score = 0 // Ignore thresholds with very low recall
+			}
 		case "recall":
 			r.score = recall
 		case "accuracy":
 			r.score = accuracy
+		case "mcc":
+			r.score = mcc
+		case "pr_distance":
+			// For distance, lower is better, so we negate
+			r.score = -distance
+		case "precision_at_recall":
+			// Find threshold that gives maximum precision at 50% recall
+			if recall >= 0.5 {
+				r.score = precision
+			} else {
+				r.score = 0
+			}
 		default:
 			r.score = f1
 		}
@@ -294,4 +336,115 @@ func FindOptimalThreshold(predictions, labels []float64, metric string) (float64
 	}
 	
 	return best.threshold, best.score
+}
+
+// fitBetaCalibration fits a beta distribution-based calibration
+// This is less aggressive than Platt scaling and preserves more of the original distribution
+func fitBetaCalibration(scores, labels []float64) func(float64) float64 {
+	// Calculate positive and negative score means
+	var posSum, negSum float64
+	var posCount, negCount int
+	
+	for i, score := range scores {
+		if labels[i] > 0.5 {
+			posSum += score
+			posCount++
+		} else {
+			negSum += score
+			negCount++
+		}
+	}
+	
+	posMean := posSum / float64(posCount+1)
+	negMean := negSum / float64(negCount+1)
+	
+	// Simple linear interpolation between means
+	return func(score float64) float64 {
+		// Map negative mean to 0.2 and positive mean to 0.8
+		// This preserves more of the original distribution
+		if score <= negMean {
+			return score / negMean * 0.2
+		} else if score >= posMean {
+			return 0.8 + (score-posMean)/(1-posMean) * 0.2
+		} else {
+			// Linear interpolation between negMean and posMean
+			t := (score - negMean) / (posMean - negMean)
+			return 0.2 + t * 0.6
+		}
+	}
+}
+
+// fitIsotonicRegression fits isotonic regression calibration
+// This is a non-parametric method that preserves monotonicity
+func fitIsotonicRegression(scores, labels []float64) func(float64) float64 {
+	// Sort scores and labels together
+	type pair struct {
+		score float64
+		label float64
+	}
+	pairs := make([]pair, len(scores))
+	for i := range scores {
+		pairs[i] = pair{scores[i], labels[i]}
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].score < pairs[j].score
+	})
+	
+	// Pool adjacent violators algorithm
+	n := len(pairs)
+	values := make([]float64, n)
+	weights := make([]float64, n)
+	
+	for i := range pairs {
+		values[i] = pairs[i].label
+		weights[i] = 1.0
+	}
+	
+	// PAV algorithm
+	for i := 1; i < n; i++ {
+		if values[i] < values[i-1] {
+			// Violation found, pool
+			poolStart := i - 1
+			poolSum := values[poolStart] * weights[poolStart] + values[i] * weights[i]
+			poolWeight := weights[poolStart] + weights[i]
+			poolValue := poolSum / poolWeight
+			
+			// Check if we need to pool more
+			for poolStart > 0 && values[poolStart-1] > poolValue {
+				poolStart--
+				poolSum += values[poolStart] * weights[poolStart]
+				poolWeight += weights[poolStart]
+				poolValue = poolSum / poolWeight
+			}
+			
+			// Apply pooled value
+			for j := poolStart; j <= i; j++ {
+				values[j] = poolValue
+				weights[j] = poolWeight / float64(i-poolStart+1)
+			}
+		}
+	}
+	
+	// Create interpolation function
+	calibScores := make([]float64, n)
+	calibValues := make([]float64, n)
+	for i := range pairs {
+		calibScores[i] = pairs[i].score
+		calibValues[i] = values[i]
+	}
+	
+	return func(score float64) float64 {
+		// Binary search for interpolation
+		idx := sort.SearchFloat64s(calibScores, score)
+		
+		if idx == 0 {
+			return calibValues[0]
+		} else if idx == n {
+			return calibValues[n-1]
+		} else {
+			// Linear interpolation
+			t := (score - calibScores[idx-1]) / (calibScores[idx] - calibScores[idx-1])
+			return calibValues[idx-1] + t*(calibValues[idx]-calibValues[idx-1])
+		}
+	}
 }

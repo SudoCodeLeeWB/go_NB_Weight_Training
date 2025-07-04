@@ -1,0 +1,63 @@
+{
+  "_comment": "Examples of different calibration configurations",
+  
+  "beta_calibration": {
+    "description": "Default - preserves score distribution while mapping to probabilities",
+    "training_config": {
+      "enable_calibration": true,
+      "calibration_method": "beta",
+      "threshold_metric": "precision"
+    }
+  },
+  
+  "isotonic_calibration": {
+    "description": "Non-parametric, handles complex patterns but may overfit",
+    "training_config": {
+      "enable_calibration": true,
+      "calibration_method": "isotonic",
+      "threshold_metric": "f1"
+    }
+  },
+  
+  "platt_calibration": {
+    "description": "Sigmoid-based, aggressive transformation, good for SVM-like outputs",
+    "training_config": {
+      "enable_calibration": true,
+      "calibration_method": "platt",
+      "threshold_metric": "precision"
+    }
+  },
+  
+  "no_calibration_function": {
+    "description": "Only min-max normalization, preserves exact distribution",
+    "training_config": {
+      "enable_calibration": true,
+      "calibration_method": "none",
+      "threshold_metric": "precision"
+    }
+  },
+  
+  "threshold_metrics": {
+    "precision": "Maximize precision with min 10% recall constraint",
+    "f1": "Balance precision and recall",
+    "recall": "Maximize recall (catch all positives)",
+    "accuracy": "Maximize overall accuracy",
+    "mcc": "Matthews Correlation Coefficient - balanced metric",
+    "pr_distance": "Minimize distance to perfect point (1,1) in PR space",
+    "precision_at_recall": "Max precision with at least 50% recall"
+  },
+  
+  "three_way_split_example": {
+    "description": "Avoid data leakage with train/calibration/test split",
+    "data_config": {
+      "use_three_way_split": true,
+      "calibration_split": 0.15,
+      "validation_split": 0.15
+    },
+    "training_config": {
+      "enable_calibration": true,
+      "calibration_method": "beta",
+      "threshold_metric": "precision"
+    }
+  }
+}

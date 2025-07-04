@@ -11,6 +11,11 @@ type Splitter interface {
 	Split(dataset *Dataset) (*Split, error)
 }
 
+// ThreeWaySplitter interface for train-calibration-test splits
+type ThreeWaySplitter interface {
+	SplitThreeWay(dataset *Dataset) (*ThreeWaySplit, error)
+}
+
 // CrossValidator interface for cross-validation strategies
 type CrossValidator interface {
 	GetFolds(dataset *Dataset) ([]Fold, error)
@@ -276,4 +281,131 @@ func (skf *StratifiedKFoldCV) GetFolds(dataset *Dataset) ([]Fold, error) {
 	}
 	
 	return folds, nil
+}
+
+// ThreeWayRandomSplitter performs random train-calibration-test split
+type ThreeWayRandomSplitter struct {
+	CalibrationSize float64 // Size for calibration set
+	TestSize        float64 // Size for test set
+	RandomSeed      int64
+}
+
+// NewThreeWayRandomSplitter creates a new three-way splitter
+// The training size will be 1 - calibrationSize - testSize
+func NewThreeWayRandomSplitter(calibrationSize, testSize float64, seed int64) *ThreeWayRandomSplitter {
+	return &ThreeWayRandomSplitter{
+		CalibrationSize: calibrationSize,
+		TestSize:        testSize,
+		RandomSeed:      seed,
+	}
+}
+
+// SplitThreeWay implements the ThreeWaySplitter interface
+func (trs *ThreeWayRandomSplitter) SplitThreeWay(dataset *Dataset) (*ThreeWaySplit, error) {
+	totalTestSize := trs.CalibrationSize + trs.TestSize
+	if totalTestSize <= 0 || totalTestSize >= 1 {
+		return nil, fmt.Errorf("calibration_size + test_size must be between 0 and 1")
+	}
+	
+	rng := rand.New(rand.NewSource(trs.RandomSeed))
+	
+	// Create shuffled indices
+	indices := make([]int, dataset.NumSamples)
+	for i := range indices {
+		indices[i] = i
+	}
+	
+	// Shuffle
+	rng.Shuffle(len(indices), func(i, j int) {
+		indices[i], indices[j] = indices[j], indices[i]
+	})
+	
+	// Calculate split points
+	calibrationSize := int(float64(dataset.NumSamples) * trs.CalibrationSize)
+	testSize := int(float64(dataset.NumSamples) * trs.TestSize)
+	
+	// Split indices
+	calibrationIndices := indices[:calibrationSize]
+	testIndices := indices[calibrationSize : calibrationSize+testSize]
+	trainIndices := indices[calibrationSize+testSize:]
+	
+	return &ThreeWaySplit{
+		Train:       dataset.Subset(trainIndices),
+		Calibration: dataset.Subset(calibrationIndices),
+		Test:        dataset.Subset(testIndices),
+	}, nil
+}
+
+// ThreeWayStratifiedSplitter performs stratified train-calibration-test split
+type ThreeWayStratifiedSplitter struct {
+	CalibrationSize float64
+	TestSize        float64
+	RandomSeed      int64
+}
+
+// NewThreeWayStratifiedSplitter creates a new stratified three-way splitter
+func NewThreeWayStratifiedSplitter(calibrationSize, testSize float64, seed int64) *ThreeWayStratifiedSplitter {
+	return &ThreeWayStratifiedSplitter{
+		CalibrationSize: calibrationSize,
+		TestSize:        testSize,
+		RandomSeed:      seed,
+	}
+}
+
+// SplitThreeWay implements the ThreeWaySplitter interface with stratification
+func (tss *ThreeWayStratifiedSplitter) SplitThreeWay(dataset *Dataset) (*ThreeWaySplit, error) {
+	totalTestSize := tss.CalibrationSize + tss.TestSize
+	if totalTestSize <= 0 || totalTestSize >= 1 {
+		return nil, fmt.Errorf("calibration_size + test_size must be between 0 and 1")
+	}
+	
+	rng := rand.New(rand.NewSource(tss.RandomSeed))
+	
+	// Group indices by class
+	classIndices := make(map[float64][]int)
+	for i, sample := range dataset.Samples {
+		classIndices[sample.Label] = append(classIndices[sample.Label], i)
+	}
+	
+	trainIndices := []int{}
+	calibrationIndices := []int{}
+	testIndices := []int{}
+	
+	// Split each class proportionally
+	for _, indices := range classIndices {
+		// Shuffle indices for this class
+		shuffled := make([]int, len(indices))
+		copy(shuffled, indices)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		
+		// Calculate split points
+		calibSize := int(float64(len(shuffled)) * tss.CalibrationSize)
+		testSize := int(float64(len(shuffled)) * tss.TestSize)
+		
+		// Ensure at least one sample in each set if possible
+		if calibSize == 0 && len(shuffled) >= 3 {
+			calibSize = 1
+		}
+		if testSize == 0 && len(shuffled) >= 3 {
+			testSize = 1
+		}
+		
+		// Split
+		calibrationIndices = append(calibrationIndices, shuffled[:calibSize]...)
+		testIndices = append(testIndices, shuffled[calibSize:calibSize+testSize]...)
+		trainIndices = append(trainIndices, shuffled[calibSize+testSize:]...)
+	}
+	
+	// Sort indices for consistent ordering
+	sort.Ints(trainIndices)
+	sort.Ints(calibrationIndices)
+	sort.Ints(testIndices)
+	
+	return &ThreeWaySplit{
+		Train:       dataset.Subset(trainIndices),
+		Calibration: dataset.Subset(calibrationIndices),
+		Test:        dataset.Subset(testIndices),
+	}, nil
 }

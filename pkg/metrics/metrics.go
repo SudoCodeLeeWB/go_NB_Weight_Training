@@ -95,6 +95,15 @@ func (cm *ConfusionMatrix) TPR() float64 {
 	return cm.Recall()
 }
 
+// Accuracy calculates overall accuracy
+func (cm *ConfusionMatrix) Accuracy() float64 {
+	total := cm.TruePositives + cm.TrueNegatives + cm.FalsePositives + cm.FalseNegatives
+	if total == 0 {
+		return 0.0
+	}
+	return float64(cm.TruePositives+cm.TrueNegatives) / float64(total)
+}
+
 // CalculateThresholdMetrics calculates metrics at different thresholds
 func CalculateThresholdMetrics(predictions, labels []float64) []ThresholdMetric {
 	// Create unique thresholds from predictions

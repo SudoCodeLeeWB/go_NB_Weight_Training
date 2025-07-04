@@ -29,6 +29,13 @@ type TrainingResult struct {
 	TrainMetrics    map[string]float64
 	ValMetrics      map[string]float64
 	
+	// Calibration and threshold
+	IsCalibrated       bool
+	OptimalThreshold   float64
+	ThresholdMetric    string // metric used to find optimal threshold
+	MetricsAtThreshold map[string]float64 // metrics at optimal threshold
+	CalibratedEnsemble *CalibratedEnsemble // the calibrated ensemble if calibration was performed
+	
 	// History
 	MetricHistory   map[string][]float64
 	WeightHistory   [][]float64
@@ -247,6 +254,7 @@ func (t *Trainer) trainSingleSplit(dataset *data.Dataset) (*TrainingResult, erro
 		PopulationSize: t.config.OptimizerConfig.PopulationSize,
 		MutationFactor: t.config.OptimizerConfig.MutationFactor,
 		CrossoverProb:  t.config.OptimizerConfig.CrossoverProb,
+		EnforceNonZero: t.config.OptimizerConfig.EnforceNonZero,
 		Callback:       t.createOptCallback(),
 	}
 	
@@ -287,6 +295,164 @@ func (t *Trainer) trainSingleSplit(dataset *data.Dataset) (*TrainingResult, erro
 	result.TrainMetrics = trainMetrics
 	result.ValMetrics = valMetrics
 	result.FinalMetrics = valMetrics
+	
+	// Perform calibration and find optimal threshold
+	if t.config.TrainingConfig.EnableCalibration {
+		calibratedEnsemble := &CalibratedEnsemble{
+			EnsembleModel:     ensemble,
+			UseLogSpace:       false,
+			CalibrationMethod: t.config.TrainingConfig.CalibrationMethod,
+		}
+		
+		// Check if we should use three-way split
+		if t.config.DataConfig.UseThreeWaySplit {
+			// Create three-way split from the original dataset
+			threeWaySplitter := data.NewThreeWayStratifiedSplitter(
+				t.config.DataConfig.CalibrationSplit,
+				t.config.DataConfig.ValidationSplit,
+				t.config.DataConfig.RandomSeed,
+			)
+			
+			threeWaySplit, err := threeWaySplitter.SplitThreeWay(dataset)
+			if err != nil {
+				return nil, fmt.Errorf("three-way split failed: %w", err)
+			}
+			
+			// Re-train on train set only
+			trainSplit := &data.Split{
+				Train: threeWaySplit.Train,
+				Test:  threeWaySplit.Calibration, // Use calibration set for validation during training
+			}
+			
+			// Create objective function for new split
+			objectiveFunc := t.createObjectiveFunction(trainSplit.Train, trainSplit.Test)
+			
+			// Run optimization with new split
+			optConfig := &optimizer.Config{
+				MaxIterations:  t.config.TrainingConfig.MaxEpochs,
+				Tolerance:      1e-6,
+				RandomSeed:     t.config.DataConfig.RandomSeed + 1000, // Different seed for re-training
+				MinWeight:      t.config.OptimizerConfig.MinWeight,
+				MaxWeight:      t.config.OptimizerConfig.MaxWeight,
+				PopulationSize: t.config.OptimizerConfig.PopulationSize,
+				MutationFactor: t.config.OptimizerConfig.MutationFactor,
+				CrossoverProb:  t.config.OptimizerConfig.CrossoverProb,
+				EnforceNonZero: t.config.OptimizerConfig.EnforceNonZero,
+			}
+			
+			optResult, err := t.optimizer.Optimize(objectiveFunc, len(t.models), optConfig)
+			if err != nil {
+				return nil, fmt.Errorf("re-optimization failed: %w", err)
+			}
+			
+			// Update weights
+			result.BestWeights = optResult.BestWeights
+			ensemble.Weights = optResult.BestWeights
+			
+			// Fit calibration on calibration set
+			calibFeatures := threeWaySplit.Calibration.GetFeatures()
+			calibLabels := threeWaySplit.Calibration.GetLabels()
+			
+			err = calibratedEnsemble.FitCalibration(calibFeatures, calibLabels)
+			if err != nil {
+				if t.config.TrainingConfig.Verbose {
+					fmt.Printf("Warning: Calibration failed: %v\n", err)
+				}
+			} else {
+				result.IsCalibrated = true
+				result.CalibratedEnsemble = calibratedEnsemble
+				
+				// Find optimal threshold on TEST set (not calibration set)
+				testFeatures := threeWaySplit.Test.GetFeatures()
+				testLabels := threeWaySplit.Test.GetLabels()
+				calibratedPreds, _ := calibratedEnsemble.PredictCalibrated(testFeatures)
+				
+				thresholdMetric := t.config.TrainingConfig.ThresholdMetric
+				if thresholdMetric == "" {
+					thresholdMetric = "f1"
+				}
+				
+				optThreshold, bestScore := FindOptimalThreshold(calibratedPreds, testLabels, thresholdMetric)
+				result.OptimalThreshold = optThreshold
+				result.ThresholdMetric = thresholdMetric
+				
+				// Calculate metrics at optimal threshold
+				cm := metrics.CalculateConfusionMatrix(calibratedPreds, testLabels, optThreshold)
+				result.MetricsAtThreshold = map[string]float64{
+					"precision": cm.Precision(),
+					"recall":    cm.Recall(),
+					"f1_score":  cm.F1Score(),
+					"accuracy":  cm.Accuracy(),
+					"threshold": optThreshold,
+				}
+				
+				// Update final metrics to be from test set
+				result.ValMetrics = t.evaluateMetrics(ensemble, threeWaySplit.Test)
+				result.FinalMetrics = result.ValMetrics
+				
+				if t.config.TrainingConfig.Verbose {
+					fmt.Printf("\nThree-way split calibration:\n")
+					fmt.Printf("- Train: %d samples\n", threeWaySplit.Train.NumSamples)
+					fmt.Printf("- Calibration: %d samples\n", threeWaySplit.Calibration.NumSamples)
+					fmt.Printf("- Test: %d samples\n", threeWaySplit.Test.NumSamples)
+					fmt.Printf("\nOptimal threshold (%.4f) found using %s: %.4f\n", 
+						optThreshold, thresholdMetric, bestScore)
+					fmt.Printf("Metrics at optimal threshold:\n")
+					fmt.Printf("  Precision: %.4f\n", result.MetricsAtThreshold["precision"])
+					fmt.Printf("  Recall: %.4f\n", result.MetricsAtThreshold["recall"])
+					fmt.Printf("  F1-Score: %.4f\n", result.MetricsAtThreshold["f1_score"])
+					fmt.Printf("  Accuracy: %.4f\n", result.MetricsAtThreshold["accuracy"])
+				}
+			}
+		} else {
+			// Original two-way split logic
+			valFeatures := split.Test.GetFeatures()
+			valLabels := split.Test.GetLabels()
+			
+			err = calibratedEnsemble.FitCalibration(valFeatures, valLabels)
+			if err != nil {
+				if t.config.TrainingConfig.Verbose {
+					fmt.Printf("Warning: Calibration failed: %v\n", err)
+				}
+			} else {
+				result.IsCalibrated = true
+				result.CalibratedEnsemble = calibratedEnsemble
+				
+				// Get calibrated predictions
+				calibratedPreds, _ := calibratedEnsemble.PredictCalibrated(valFeatures)
+				
+				// Find optimal threshold
+				thresholdMetric := t.config.TrainingConfig.ThresholdMetric
+				if thresholdMetric == "" {
+					thresholdMetric = "f1"
+				}
+				
+				optThreshold, bestScore := FindOptimalThreshold(calibratedPreds, valLabels, thresholdMetric)
+				result.OptimalThreshold = optThreshold
+				result.ThresholdMetric = thresholdMetric
+				
+				// Calculate metrics at optimal threshold
+				cm := metrics.CalculateConfusionMatrix(calibratedPreds, valLabels, optThreshold)
+				result.MetricsAtThreshold = map[string]float64{
+					"precision": cm.Precision(),
+					"recall":    cm.Recall(),
+					"f1_score":  cm.F1Score(),
+					"accuracy":  cm.Accuracy(),
+					"threshold": optThreshold,
+				}
+				
+				if t.config.TrainingConfig.Verbose {
+					fmt.Printf("\nCalibration complete. Optimal threshold (%.4f) found using %s: %.4f\n", 
+						optThreshold, thresholdMetric, bestScore)
+					fmt.Printf("Metrics at optimal threshold:\n")
+					fmt.Printf("  Precision: %.4f\n", result.MetricsAtThreshold["precision"])
+					fmt.Printf("  Recall: %.4f\n", result.MetricsAtThreshold["recall"])
+					fmt.Printf("  F1-Score: %.4f\n", result.MetricsAtThreshold["f1_score"])
+					fmt.Printf("  Accuracy: %.4f\n", result.MetricsAtThreshold["accuracy"])
+				}
+			}
+		}
+	}
 	
 	return result, nil
 }
@@ -347,6 +513,7 @@ func (t *Trainer) crossValidate(dataset *data.Dataset) (*CrossValidationResult, 
 			PopulationSize: t.config.OptimizerConfig.PopulationSize,
 			MutationFactor: t.config.OptimizerConfig.MutationFactor,
 			CrossoverProb:  t.config.OptimizerConfig.CrossoverProb,
+			EnforceNonZero: t.config.OptimizerConfig.EnforceNonZero,
 		}
 		
 		optResult, err := t.optimizer.Optimize(objectiveFunc, len(t.models), optConfig)

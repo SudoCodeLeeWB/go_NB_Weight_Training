@@ -11,14 +11,17 @@
     "batch_size": 32,
     "optimization_metric": "pr_auc",
     "verbose": true,
-    "log_interval": 10
+    "log_interval": 10,
+    "enable_calibration": true,
+    "calibration_method": "beta",
+    "threshold_metric": "precision"
   },
   "optimizer_config": {
     "type": "differential_evolution",
     "population_size": 50,
     "mutation_factor": 0.8,
     "crossover_prob": 0.9,
-    "min_weight": 0.0,
+    "min_weight": 0.01,
     "max_weight": 2.0
   },
   "early_stopping": {

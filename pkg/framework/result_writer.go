@@ -83,6 +83,16 @@ func (rw *ResultWriter) saveResultJSON(result *TrainingResult, path string) erro
 		"converged":       result.Converged,
 		"metric_history":  result.MetricHistory,
 		"weight_history":  result.WeightHistory,
+		"is_calibrated":   result.IsCalibrated,
+		"optimal_threshold": result.OptimalThreshold,
+		"threshold_metric": result.ThresholdMetric,
+		"metrics_at_threshold": result.MetricsAtThreshold,
+		"calibration_method": func() string {
+			if result.CalibratedEnsemble != nil {
+				return result.CalibratedEnsemble.CalibrationMethod
+			}
+			return "none"
+		}(),
 	}
 	
 	// Add CV results if available
@@ -170,6 +180,26 @@ func (rw *ResultWriter) saveSummary(result *TrainingResult, config *Config, path
 		summary += fmt.Sprintf("-------------------\n")
 		for metric, value := range result.ValMetrics {
 			summary += fmt.Sprintf("%s: %.4f\n", metric, value)
+		}
+	}
+	
+	if result.IsCalibrated {
+		summary += fmt.Sprintf("\nCalibration Results:\n")
+		summary += fmt.Sprintf("--------------------\n")
+		calibMethod := "unknown"
+		if result.CalibratedEnsemble != nil {
+			calibMethod = result.CalibratedEnsemble.CalibrationMethod
+		}
+		summary += fmt.Sprintf("Calibration Method: %s\n", calibMethod)
+		summary += fmt.Sprintf("Optimal Threshold: %.4f (based on %s)\n", result.OptimalThreshold, result.ThresholdMetric)
+		summary += fmt.Sprintf("\nMetrics at Optimal Threshold (%.4f):\n", result.OptimalThreshold)
+		summary += fmt.Sprintf("----------------------------------\n")
+		if result.MetricsAtThreshold != nil {
+			for metric, value := range result.MetricsAtThreshold {
+				if metric != "threshold" {
+					summary += fmt.Sprintf("%s: %.4f\n", metric, value)
+				}
+			}
 		}
 	}
 	

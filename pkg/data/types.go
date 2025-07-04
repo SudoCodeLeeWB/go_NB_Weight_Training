@@ -22,6 +22,13 @@ type Split struct {
 	Test  *Dataset
 }
 
+// ThreeWaySplit represents a train-calibration-test split
+type ThreeWaySplit struct {
+	Train       *Dataset
+	Calibration *Dataset
+	Test        *Dataset
+}
+
 // Fold represents a cross-validation fold
 type Fold struct {
 	TrainIndices []int

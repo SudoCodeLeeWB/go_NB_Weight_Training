@@ -1,365 +1,183 @@
-# Weighted Naive Bayes Training Framework
+# Weighted Naive Bayes Training Framework for Go
 
-A Go framework for training weighted naive bayes ensemble models with PR-AUC optimization. This framework is designed to find optimal weights for combining predictions from multiple binary classifiers using a naive bayes aggregation approach.
+A sophisticated ensemble learning framework that optimizes weights for multiple binary classifiers using PR-AUC (Precision-Recall Area Under Curve) optimization. The framework employs gradient-free optimization algorithms and combines predictions using weighted Naive Bayes multiplication.
 
 ## Features
 
-- **PR-AUC Optimization**: Optimizes weights to maximize Precision-Recall AUC without setting a fixed threshold
-- **Gradient-Free Optimization**: Uses Differential Evolution algorithm for robust weight optimization
-- **Stratified Cross-Validation**: Maintains class balance across folds for reliable evaluation
-- **Early Stopping**: Prevents overfitting with configurable patience and monitoring
-- **Comprehensive Metrics**: Calculates PR-AUC, ROC-AUC, precision, recall, and F1-score
-- **Visualization**: Generates PR curves, ROC curves, and HTML reports with gonum/plot
-- **Modular Design**: Clean architecture with interfaces for easy extension
-- **Production Ready**: Comprehensive test suite and benchmarks
+- **PR-AUC Optimization**: Focuses on precision-recall trade-offs, ideal for imbalanced datasets
+- **Gradient-Free Optimization**: Uses Differential Evolution for robust weight optimization
+- **Multiple Calibration Methods**: Beta, Isotonic, Platt, and None calibration for probability adjustment
+- **Three-Way Data Split**: Prevents data leakage with separate train/calibration/test sets
+- **Flexible Model Interface**: Easy integration of custom binary classifiers
+- **Cross-Validation Support**: K-fold and stratified sampling for robust evaluation
+- **Early Stopping**: Prevents overfitting with patience-based stopping
+- **Comprehensive Visualization**: Generates PR/ROC curves and HTML reports
+- **Production Ready**: Includes model persistence, batch processing, and extensive validation
 
 ## Installation
 
 ```bash
-go get github.com/iwonbin/go-nb-weight-training
+# Clone the repository
+git clone https://github.com/yourusername/go_NB_Weight_Training.git
+cd go_NB_Weight_Training
+
+# Download dependencies
+go mod download
+
+# Build the CLI tool
+go build -o train_ensemble cmd/train/main.go
 ```
 
 ## Quick Start
 
-### 1. Implement Your Model
+### 1. Basic Training
 
-To use this framework, you need to implement the `Model` interface for each of your classifiers:
+```bash
+# Train with default configuration
+go run cmd/train/main.go -data your_data.csv
 
-```go
-package main
-
-import "github.com/iwonbin/go-nb-weight-training/pkg/framework"
-
-// Step 1: Define your model struct
-type MyLogisticRegression struct {
-    // Your model parameters
-    coefficients []float64
-    intercept    float64
-}
-
-// Step 2: Implement the Predict method
-// Input: samples [][]float64 - each row is a feature vector
-// Output: []float64 - probability scores (0-1) for positive class
-func (m *MyLogisticRegression) Predict(samples [][]float64) ([]float64, error) {
-    predictions := make([]float64, len(samples))
-    
-    for i, features := range samples {
-        // Your prediction logic here
-        // Example: logistic regression
-        logit := m.intercept
-        for j, coef := range m.coefficients {
-            if j < len(features) {
-                logit += coef * features[j]
-            }
-        }
-        // Convert to probability
-        predictions[i] = 1.0 / (1.0 + math.Exp(-logit))
-    }
-    
-    return predictions, nil
-}
-
-// Step 3: Implement GetName method
-func (m *MyLogisticRegression) GetName() string {
-    return "LogisticRegression"
-}
+# Or use the built binary
+./train_ensemble -data your_data.csv
 ```
 
-### 2. Prepare Your Data
+### 2. Advanced Training with Configuration
 
-Your CSV file should contain raw features (NOT predictions) with a binary label:
+```bash
+# Use production configuration
+go run cmd/train/main.go \
+  -data your_data.csv \
+  -config config/production_config.json \
+  -output ./results
+```
+
+### 3. Run Examples
+
+```bash
+# Simple example
+go run examples/simple/main.go
+
+# Advanced example with cross-validation
+go run examples/advanced/main.go
+
+# Production-ready example
+go run examples/production/main.go
+
+# Run all demos
+./demo/run_demo.sh
+```
+
+## Data Format
+
+The framework expects CSV data with features and binary labels:
 
 ```csv
-feature1,feature2,feature3,feature4,label
-5.2,3.1,4.5,1.8,1
-2.1,1.2,1.3,0.4,0
-6.7,3.0,5.2,2.3,1
-1.5,0.8,1.1,0.3,0
+feature1,feature2,feature3,label
+0.8,0.7,0.9,1
+0.2,0.3,0.1,0
 ```
 
-### 3. Train the Ensemble
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-    
-    "github.com/iwonbin/go-nb-weight-training/pkg/framework"
-    "github.com/iwonbin/go-nb-weight-training/pkg/data"
-)
-
-func main() {
-    // Step 1: Load your data
-    loader := data.NewCSVLoader()
-    dataset, err := loader.Load("train_data.csv")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Step 2: Create your pre-trained models
-    models := []framework.Model{
-        &MyLogisticRegression{
-            // Initialize with your trained parameters
-            coefficients: []float64{0.5, -0.3, 0.8, 0.2},
-            intercept:    -0.1,
-        },
-        &MyRandomForest{
-            // Your random forest implementation
-        },
-        &MyNeuralNetwork{
-            // Your neural network implementation
-        },
-    }
-    
-    // Step 3: Configure training (or load from config file)
-    config := framework.DefaultConfig()
-    config.TrainingConfig.MaxEpochs = 100
-    config.DataConfig.ValidationSplit = 0.2
-    config.DataConfig.KFolds = 1  // Use simple split
-    
-    // Enable early stopping
-    config.EarlyStopping = &framework.EarlyStoppingConfig{
-        Patience: 5,      // Stop after 5 epochs with no improvement
-        MinDelta: 0.001,  // Minimum improvement threshold
-        Monitor:  "pr_auc",
-        Mode:     "max",
-    }
-    
-    // Step 4: Train to find optimal weights
-    trainer := framework.NewTrainer(config)
-    result, err := trainer.Train(dataset, models)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Step 5: Display results
-    fmt.Printf("Training completed!\n")
-    fmt.Printf("Number of models: %d\n", len(models))
-    fmt.Printf("Best weights found: %v\n", result.BestWeights)
-    fmt.Printf("Final PR-AUC: %.4f\n", result.FinalMetrics["pr_auc"])
-    
-    // Step 6: Create the final ensemble for predictions
-    ensemble := &framework.EnsembleModel{
-        Models:  models,
-        Weights: result.BestWeights,
-    }
-    
-    // Make predictions on new data
-    newSamples := [][]float64{
-        {5.1, 3.0, 4.7, 1.9},
-        {2.0, 1.1, 1.2, 0.5},
-    }
-    predictions, _ := ensemble.Predict(newSamples)
-    fmt.Printf("Predictions: %v\n", predictions)
-}
-```
-
-### 4. Using Configuration Files
-
-Instead of hardcoding configuration, you can load from JSON files in the `config/` directory:
-
-```go
-// Load configuration from file
-config, err := framework.LoadConfig("config/training_config.json")
-if err != nil {
-    log.Fatal(err)
-}
-
-// Train with loaded config
-trainer := framework.NewTrainer(config)
-result, _ := trainer.Train(dataset, models)
-```
+**Important**: 
+- Features are raw input features, NOT classifier predictions
+- Labels must be binary (0 or 1)
+- Models implementing the Model interface process these features
 
 ## Configuration
 
-The framework provides extensive configuration options:
+### Configuration Structure
 
-```go
-config := &framework.Config{
-    DataConfig: framework.DataConfig{
-        ValidationSplit: 0.2,    // Train-validation split ratio
-        KFolds:          5,      // Number of CV folds
-        Stratified:      true,   // Use stratified splitting
-        RandomSeed:      42,     // For reproducibility
-    },
-    TrainingConfig: framework.TrainingConfig{
-        MaxEpochs:          100,      // Maximum optimization iterations
-        OptimizationMetric: "pr_auc", // Metric to optimize
-        Verbose:            true,      // Enable logging
-    },
-    OptimizerConfig: framework.OptimizerConfig{
-        Type:           "differential_evolution",
-        PopulationSize: 50,
-        MutationFactor: 0.8,
-        CrossoverProb:  0.9,
-        MinWeight:      0.0,
-        MaxWeight:      2.0,
-    },
-    EarlyStopping: &framework.EarlyStoppingConfig{
-        Patience: 10,
-        MinDelta: 0.001,
-        Monitor:  "val_pr_auc",
-        Mode:     "max",
-    },
-    Visualization: framework.VisualizationConfig{
-        Enabled:        true,
-        OutputDir:      "./output",
-        GenerateReport: true,
-    },
+```json
+{
+  "data_config": {
+    "validation_split": 0.2,
+    "k_folds": 5,
+    "stratified": true,
+    "use_three_way_split": true,
+    "calibration_split": 0.25
+  },
+  "training_config": {
+    "max_epochs": 100,
+    "optimization_metric": "pr_auc",
+    "enable_calibration": true,
+    "calibration_method": "beta",
+    "threshold_metric": "precision"
+  },
+  "optimizer_config": {
+    "type": "differential_evolution",
+    "min_weight": 0.01,
+    "max_weight": 2.0,
+    "enforce_non_zero": false
+  },
+  "early_stopping": {
+    "enabled": true,
+    "patience": 10,
+    "min_delta": 0.001,
+    "monitor": "val_pr_auc"
+  }
 }
 ```
 
-## How It Works
+### Pre-configured Profiles
 
-### Overview
+1. **Quick Training** (`config/quick_training.json`)
+   - Fast prototyping with simple train/test split
+   - 50 epochs, no cross-validation
 
-This framework finds optimal weights for combining multiple pre-trained classifiers using a Weighted Naive Bayes approach. Instead of training the models themselves, it learns how much to "trust" each model's predictions.
+2. **Default** (`config/default_config.json`)
+   - Balanced settings with 5-fold cross-validation
+   - 100 epochs, early stopping
 
-### Data Flow
-
-```
-Raw Features → Model 1 → Prediction 1 ─┐
-             → Model 2 → Prediction 2 ─┼─→ Weighted Ensemble → Final Score
-             → Model 3 → Prediction 3 ─┘   (using learned weights)
-```
-
-### The Training Process
-
-#### 1. **What Gets Trained**
-- **Input**: Multiple pre-trained models that can make predictions
-- **Output**: Optimal weight for each model
-- **Formula**: `final_score = prediction1^weight1 × prediction2^weight2 × prediction3^weight3`
-
-#### 2. **Differential Evolution Algorithm**
-
-The framework uses an evolutionary algorithm to find optimal weights:
-
-**Population Initialization**
-```
-Population = [
-    [0.5, 1.2, 0.8],  // Candidate 1: weights for 3 models
-    [0.7, 0.9, 1.1],  // Candidate 2
-    [1.0, 0.6, 1.3],  // Candidate 3
-    ...               // 50 candidates total
-]
-```
-
-**Evolution Process**
-For each generation:
-1. **Mutation**: For each candidate, create a mutant by combining other candidates
-   ```
-   Select 3 random candidates: r1, r2, r3
-   mutant = r1 + 0.8 × (r2 - r3)
-   ```
-
-2. **Crossover**: Mix mutant with original candidate
-   ```
-   For each weight position:
-   - 90% chance: use mutant value
-   - 10% chance: keep original value
-   ```
-
-3. **Selection**: Evaluate both candidates
-   ```
-   If mutant performs better (higher PR-AUC):
-       keep mutant
-   Else:
-       keep original
-   ```
-
-#### 3. **Example Evolution Step**
-
-```
-Current weights: [0.5, 1.2, 0.8]
-After mutation:  [0.7, 0.9, 1.1]
-
-Evaluation:
-- Current: PR-AUC = 0.85
-- Mutant:  PR-AUC = 0.87  ← Better! Replace current with mutant
-
-Next generation starts with [0.7, 0.9, 1.1]
-```
-
-#### 4. **Optimization Objective**
-
-The algorithm optimizes for PR-AUC (Precision-Recall Area Under Curve):
-1. Apply current weights to ensemble
-2. Make predictions on validation data
-3. Calculate PR-AUC score
-4. Higher score = better weight combination
-
-#### 5. **Convergence**
-
-Training stops when:
-- Maximum iterations reached (default: 100)
-- No improvement for 10 iterations
-- Early stopping triggered (no improvement for patience epochs)
-
-### Input Data Format
-
-Your CSV should contain **raw features**, not predictions:
-
-```csv
-feature1,feature2,feature3,feature4,label
-5.0,2.0,3.0,0.8,1
-1.0,8.0,0.0,0.1,0
-7.0,1.0,5.0,0.9,1
-```
-
-Each model receives these features and produces its own predictions, which are then combined using the learned weights.
-
-## Visualization
-
-The framework generates comprehensive visualizations:
-
-- **PR Curve**: Precision-Recall curve with AUC value
-- **ROC Curve**: ROC curve with AUC value  
-- **Weight Distribution**: Bar chart showing learned weights
-- **Training History**: Metric evolution over epochs
-- **HTML Report**: Complete training summary with all metrics and plots
-
-## Examples
-
-See the `examples/` directory for complete examples:
-
-- `simple/`: Basic usage with minimal configuration
-- `advanced/`: Advanced features including cross-validation and custom callbacks
-
-## Command Line Usage
-
-```bash
-# Basic training
-go run cmd/train/main.go -data predictions.csv
-
-# With custom configuration
-go run cmd/train/main.go -data predictions.csv -config config.json -output ./results
-
-# Flags:
-#   -data:    Path to training data (required)
-#   -config:  Path to configuration file (optional)
-#   -output:  Output directory for results (default: ./output)
-#   -verbose: Enable verbose logging (default: true)
-```
+3. **Production** (`config/production_config.json`)
+   - Robust configuration with 10-fold cross-validation
+   - 200 epochs, three-way split, comprehensive validation
 
 ## Architecture
 
 ```
-├── pkg/
-│   ├── framework/      # Core training framework
-│   ├── optimizer/      # Weight optimization algorithms
-│   ├── metrics/        # PR-AUC, ROC-AUC implementations
-│   ├── data/          # Data loading and splitting
-│   └── visualization/ # Plotting and reporting
-├── cmd/               # CLI applications
-├── models/            # Example model implementations
-└── examples/          # Usage examples
+pkg/
+├── framework/      # Core training framework
+│   ├── trainer.go      # Main training orchestrator
+│   ├── config.go       # Configuration management
+│   ├── model.go        # Model interfaces
+│   └── persistence.go  # Model saving/loading
+├── optimizer/      # Optimization algorithms
+│   ├── differential_evolution.go
+│   └── random_search.go
+├── metrics/        # Evaluation metrics
+│   ├── metrics.go      # PR-AUC, ROC-AUC calculations
+│   └── threshold.go    # Optimal threshold finding
+├── data/          # Data handling
+│   ├── loader.go       # CSV data loading
+│   ├── splitter.go     # Stratified splitting
+│   └── generators/     # Data generation utilities
+├── ensemble/      # Ensemble implementation
+│   └── weighted_ensemble.go
+└── visualization/ # Plotting and reports
+    ├── plots.go        # PR/ROC curve generation
+    └── report.go       # HTML report generation
 ```
 
-## Testing
+## Key Concepts
 
-Run the comprehensive test suite:
+### 1. Weighted Naive Bayes Aggregation
+Combines model predictions using: `∏(prediction_i ^ weight_i)`
+
+### 2. Calibration Methods
+- **Beta**: Preserves distribution, maps class means to [0.2, 0.8]
+- **Isotonic**: Non-parametric, handles complex patterns
+- **Platt**: Sigmoid transformation
+- **None**: Simple min-max scaling
+
+### 3. Three-Way Split
+- Train (60%): Model training
+- Calibration (20%): Probability calibration
+- Test (20%): Final evaluation
+
+### 4. Weight Control
+- Zero weight excludes a model (model^0 = 1)
+- `enforce_non_zero`: Keeps all models active
+- Weight bounds: [min_weight, max_weight]
+
+## Testing
 
 ```bash
 # Run all tests
@@ -368,27 +186,108 @@ go test ./...
 # Run with coverage
 go test -cover ./...
 
+# Run specific package tests
+go test ./pkg/metrics -v
+
 # Run benchmarks
-go test -bench=. ./...
+go test -bench=. -benchtime=10s ./pkg/metrics
+
+# Run integration tests
+go test ./test/integration/... -v
+
+# Run comprehensive test suite
+./scripts/test_framework.sh
 ```
 
-## License
+## CLI Usage
 
-MIT License - see LICENSE file for details
+```bash
+# Basic usage
+./train_ensemble -data data.csv
+
+# Full options
+./train_ensemble \
+  -data data.csv \
+  -config config.json \
+  -output results/ \
+  -verbose
+
+# Flags:
+#   -data    Path to training data (required)
+#   -config  Path to configuration file
+#   -output  Output directory (default: ./output)
+#   -verbose Enable verbose logging (default: true)
+```
+
+## Output
+
+The framework generates:
+- `ensemble_weights.json`: Trained model weights
+- `training_results.json`: Detailed training metrics
+- `training_summary.txt`: Human-readable summary
+- `pr_curve.png`: Precision-Recall curve
+- `roc_curve.png`: ROC curve
+- `report.html`: Comprehensive HTML report
+
+## Creating Custom Models
+
+Implement the `Model` interface:
+
+```go
+type Model interface {
+    Predict(features []float64) (float64, error)
+    GetName() string
+}
+
+// Optional extended interface
+type ExtendedModel interface {
+    Model
+    Train(X [][]float64, y []int) error
+    Save(path string) error
+    Load(path string) error
+}
+```
+
+See `models/example_model.go` for a template.
+
+## Production Considerations
+
+### ✅ Production Ready Features
+- Model persistence and loading
+- Probability calibration
+- Input validation
+- Memory-efficient batch processing
+- Early stopping with best weight restoration
+- Comprehensive error handling
+
+### ⚠️ Limitations
+- Local use only (no API server)
+- Single-machine processing
+- Binary classification only
+
+## Examples
+
+See the `examples/` directory for:
+- `simple/`: Basic usage
+- `advanced/`: Cross-validation and advanced features
+- `production/`: Production-ready implementation
+- `calibration_demo.go`: Calibration methods demonstration
+- `precision_analysis.go`: Precision optimization
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## Citation
+## License
 
-If you use this framework in your research, please cite:
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-```bibtex
-@software{weighted_naive_bayes_go,
-  title = {Weighted Naive Bayes Training Framework for Go},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/iwonbin/go-nb-weight-training}
-}
-```
+## Acknowledgments
+
+- Built with [gonum](https://www.gonum.org/) for numerical computations
+- Visualization powered by [gonum/plot](https://github.com/gonum/plot)
+- Inspired by ensemble learning and Naive Bayes theory
