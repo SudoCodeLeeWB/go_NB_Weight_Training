@@ -128,6 +128,11 @@ func (t *TrainerForAggregated) Train(dataset *data.Dataset, model AggregatedMode
 	// Calculate final performance curves
 	if result.BestWeights != nil {
 		t.calculateFinalCurves(dataset, model, result)
+		
+		// Perform calibration comparison if model supports it
+		if calibratedModel, ok := model.(CalibratedAggregatedModel); ok {
+			t.performCalibrationComparison(dataset, calibratedModel, result)
+		}
 	}
 	
 	// Set final info
@@ -460,6 +465,85 @@ func (t *TrainerForAggregated) calculateFinalCurves(dataset *data.Dataset, model
 		X:   fprs,
 		Y:   tprs,
 		AUC: rocAUC,
+	}
+}
+
+func (t *TrainerForAggregated) performCalibrationComparison(dataset *data.Dataset, 
+	model CalibratedAggregatedModel, result *TrainingResult) {
+	
+	if t.config.TrainingConfig.Verbose {
+		fmt.Println("\nPerforming calibration comparison...")
+	}
+	
+	// Use validation set for calibration comparison
+	var splitter data.Splitter
+	if t.config.DataConfig.Stratified {
+		splitter = data.NewStratifiedSplitter(
+			t.config.DataConfig.ValidationSplit,
+			t.config.DataConfig.RandomSeed,
+		)
+	} else {
+		splitter = data.NewRandomSplitter(
+			t.config.DataConfig.ValidationSplit,
+			t.config.DataConfig.RandomSeed,
+		)
+	}
+	
+	split, err := splitter.Split(dataset)
+	if err != nil {
+		if t.config.TrainingConfig.Verbose {
+			fmt.Printf("Warning: Failed to create validation split for calibration comparison: %v\n", err)
+		}
+		return
+	}
+	
+	// Get validation features and labels
+	valFeatures := split.Test.GetFeatures()
+	valLabels := split.Test.GetLabels()
+	
+	// Get optimization and threshold metrics
+	optimizationMetric := t.config.TrainingConfig.OptimizationMetric
+	thresholdMetric := t.config.TrainingConfig.ThresholdMetric
+	if thresholdMetric == "" {
+		thresholdMetric = "f1"
+	}
+	
+	// Test model calibration
+	comparisonResult, err := TestModelCalibration(model, valFeatures, valLabels, 
+		optimizationMetric, thresholdMetric)
+	if err != nil {
+		if t.config.TrainingConfig.Verbose {
+			fmt.Printf("Warning: Calibration comparison failed: %v\n", err)
+		}
+		return
+	}
+	
+	// Store result
+	result.CalibrationComparison = comparisonResult
+	
+	if t.config.TrainingConfig.Verbose {
+		fmt.Printf("\nCalibration Comparison Results:\n")
+		fmt.Printf("Best method: %s (%s = %.4f)\n", 
+			comparisonResult.BestMethod, optimizationMetric, comparisonResult.BestScore)
+		
+		if comparisonResult.ModelProvidedCalibration != nil {
+			fmt.Printf("\nModel's calibration (%s):\n", model.GetCalibrationMethod())
+			fmt.Printf("  Optimal threshold: %.4f\n", comparisonResult.ModelProvidedCalibration.OptimalThreshold)
+			fmt.Printf("  Precision: %.4f\n", comparisonResult.ModelProvidedCalibration.MetricsAtThreshold["precision"])
+			fmt.Printf("  Recall: %.4f\n", comparisonResult.ModelProvidedCalibration.MetricsAtThreshold["recall"])
+			fmt.Printf("  F1-Score: %.4f\n", comparisonResult.ModelProvidedCalibration.MetricsAtThreshold["f1_score"])
+		}
+		
+		fmt.Printf("\nFramework calibration methods:\n")
+		for _, comp := range comparisonResult.CalibrationComparisons {
+			fmt.Printf("\n%s calibration:\n", comp.Method)
+			fmt.Printf("  PR-AUC: %.4f\n", comp.PRCurve.AUC)
+			fmt.Printf("  Optimal threshold: %.4f\n", comp.OptimalThreshold)
+			fmt.Printf("  Precision: %.4f\n", comp.MetricsAtThreshold["precision"])
+			fmt.Printf("  Recall: %.4f\n", comp.MetricsAtThreshold["recall"])
+			fmt.Printf("  Score range: [%.6f, %.6f]\n", 
+				comp.ScoreDistribution.Min, comp.ScoreDistribution.Max)
+		}
 	}
 }
 

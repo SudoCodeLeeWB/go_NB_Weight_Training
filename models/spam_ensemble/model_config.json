@@ -1,0 +1,8 @@
+{
+  "model_paths": {
+    "bayes_model": "bayes_spam_filter.pkl",
+    "neural_net": "spam_nn_model.h5",
+    "rules_based": "spam_rules.json"
+  },
+  "initial_weights": [1.0, 1.0, 1.0]
+}

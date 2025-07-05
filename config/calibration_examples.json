@@ -1,63 +1,70 @@
 {
-  "_comment": "Examples of different calibration configurations",
+  "_comment": "Examples showing how calibration comparison works with the CalibratedAggregatedModel interface",
   
-  "beta_calibration": {
-    "description": "Default - preserves score distribution while mapping to probabilities",
-    "training_config": {
-      "enable_calibration": true,
-      "calibration_method": "beta",
-      "threshold_metric": "precision"
-    }
+  "overview": {
+    "description": "The framework now supports automatic calibration comparison when your model implements the CalibratedAggregatedModel interface",
+    "how_it_works": [
+      "1. Your model implements PredictWithCalibration() to return both raw and calibrated scores",
+      "2. The framework tests multiple calibration methods on your raw scores",
+      "3. It compares your calibration with Beta, Isotonic, Platt, and Min-Max methods",
+      "4. Results show which calibration method works best for your data"
+    ]
   },
   
-  "isotonic_calibration": {
-    "description": "Non-parametric, handles complex patterns but may overfit",
-    "training_config": {
-      "enable_calibration": true,
-      "calibration_method": "isotonic",
-      "threshold_metric": "f1"
-    }
-  },
-  
-  "platt_calibration": {
-    "description": "Sigmoid-based, aggressive transformation, good for SVM-like outputs",
-    "training_config": {
-      "enable_calibration": true,
-      "calibration_method": "platt",
-      "threshold_metric": "precision"
-    }
-  },
-  
-  "no_calibration_function": {
-    "description": "Only min-max normalization, preserves exact distribution",
-    "training_config": {
-      "enable_calibration": true,
-      "calibration_method": "none",
-      "threshold_metric": "precision"
+  "calibration_methods_tested": {
+    "beta": {
+      "description": "Default - preserves score distribution while mapping to probabilities",
+      "when_to_use": "Good general-purpose choice, preserves relative ordering",
+      "characteristics": "Maps negative class mean to 0.2 and positive class mean to 0.8"
+    },
+    
+    "isotonic": {
+      "description": "Non-parametric, handles complex patterns but may overfit",
+      "when_to_use": "When score-probability relationship is non-linear",
+      "characteristics": "Uses isotonic regression to ensure monotonicity"
+    },
+    
+    "platt": {
+      "description": "Sigmoid-based, aggressive transformation",
+      "when_to_use": "Good for SVM-like outputs with scores near decision boundary",
+      "characteristics": "Fits sigmoid function to map scores to probabilities"
+    },
+    
+    "none": {
+      "description": "Simple min-max normalization",
+      "when_to_use": "When you want to preserve exact score distribution",
+      "characteristics": "Linear transformation to [0,1] range"
     }
   },
   
   "threshold_metrics": {
-    "precision": "Maximize precision with min 10% recall constraint",
-    "f1": "Balance precision and recall",
-    "recall": "Maximize recall (catch all positives)",
-    "accuracy": "Maximize overall accuracy",
-    "mcc": "Matthews Correlation Coefficient - balanced metric",
-    "pr_distance": "Minimize distance to perfect point (1,1) in PR space",
-    "precision_at_recall": "Max precision with at least 50% recall"
+    "description": "The framework finds optimal thresholds using these metrics",
+    "options": {
+      "precision": "Maximize precision with minimum 10% recall constraint",
+      "f1": "Balance precision and recall equally",
+      "recall": "Maximize recall (catch all positive cases)",
+      "accuracy": "Maximize overall accuracy",
+      "mcc": "Matthews Correlation Coefficient - good for imbalanced data",
+      "pr_distance": "Minimize distance to perfect point (1,1) in PR space"
+    }
   },
   
-  "three_way_split_example": {
-    "description": "Avoid data leakage with train/calibration/test split",
-    "data_config": {
-      "use_three_way_split": true,
-      "calibration_split": 0.15,
-      "validation_split": 0.15
-    },
-    "training_config": {
-      "enable_calibration": true,
-      "calibration_method": "beta",
-      "threshold_metric": "precision"
+  "example_output": {
+    "best_method": "Beta calibration",
+    "comparison_table": {
+      "headers": ["Method", "PR-AUC", "Optimal Threshold", "Precision", "Recall", "F1-Score"],
+      "example_rows": [
+        ["beta", "0.8234", "0.4985", "0.8612", "0.7544", "0.8043"],
+        ["isotonic", "0.8156", "0.5123", "0.8421", "0.7723", "0.8057"],
+        ["platt", "0.8089", "0.5012", "0.8356", "0.7812", "0.8075"],
+        ["none", "0.7945", "0.0045", "0.8234", "0.7234", "0.7702"]
+      ]
     }
+  },
+  
+  "configuration_note": {
+    "important": "Calibration comparison happens automatically when your model implements CalibratedAggregatedModel",
+    "no_config_needed": "Unlike the old system, you don't need to configure calibration in the training config",
+    "threshold_metric_config": "You can still set threshold_metric in training_config to control how optimal thresholds are found"
   }
 }

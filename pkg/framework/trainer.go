@@ -54,6 +54,9 @@ type TrainingResult struct {
 	
 	// Output directory where results were saved
 	OutputDir       string
+	
+	// Calibration comparison results (if model supports it)
+	CalibrationComparison *CalibrationComparisonResult
 }
 
 // CVFoldResult holds results for a single CV fold

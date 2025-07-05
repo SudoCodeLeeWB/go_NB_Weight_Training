@@ -26,9 +26,6 @@ type Config struct {
 
 // DataConfig holds data-related configuration
 type DataConfig struct {
-	// Path to training data
-	TrainPath string `json:"train_path"`
-	
 	// Validation split ratio (0-1)
 	ValidationSplit float64 `json:"validation_split"`
 	
@@ -65,7 +62,8 @@ type TrainingConfig struct {
 	// Log interval (epochs)
 	LogInterval int `json:"log_interval"`
 	
-	// Calibration settings
+	// Calibration settings (deprecated - use CalibratedAggregatedModel interface instead)
+	// These are kept for backward compatibility with old trainer
 	EnableCalibration bool   `json:"enable_calibration"`
 	CalibrationMethod string `json:"calibration_method"` // "platt", "isotonic", "beta", "none"
 	ThresholdMetric   string `json:"threshold_metric"` // "f1", "precision", "recall", "accuracy", "mcc", "pr_distance"

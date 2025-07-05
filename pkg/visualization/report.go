@@ -48,6 +48,33 @@ func (rg *ReportGenerator) GenerateReport(result *framework.TrainingResult, conf
 		}
 	}
 	
+	// Plot calibration comparison if available
+	if result.CalibrationComparison != nil {
+		// Score distributions
+		if err := plotter.PlotScoreDistributions(
+			result.CalibrationComparison.CalibrationComparisons,
+			result.CalibrationComparison.RawScoreDistribution,
+			"calibration_score_distributions.png"); err != nil {
+			fmt.Printf("Warning: failed to plot score distributions: %v\n", err)
+		}
+		
+		// Calibration comparison
+		if err := plotter.PlotCalibrationComparison(
+			result.CalibrationComparison.CalibrationComparisons,
+			result.CalibrationComparison.ModelProvidedCalibration,
+			"calibration_comparison.png"); err != nil {
+			fmt.Printf("Warning: failed to plot calibration comparison: %v\n", err)
+		}
+		
+		// Calibration PR curves
+		if err := plotter.PlotCalibrationCurves(
+			result.CalibrationComparison.CalibrationComparisons,
+			result.CalibrationComparison.ModelProvidedCalibration,
+			"calibration_pr_curves.png"); err != nil {
+			fmt.Printf("Warning: failed to plot calibration curves: %v\n", err)
+		}
+	}
+	
 	// Generate HTML report
 	reportPath := filepath.Join(rg.outputDir, "report.html")
 	return rg.generateHTML(result, config, reportPath)
@@ -64,17 +91,25 @@ func (rg *ReportGenerator) generateHTML(result *framework.TrainingResult, config
 	defer file.Close()
 	
 	data := struct {
-		Result       *framework.TrainingResult
-		Config       *framework.Config
-		GeneratedAt  time.Time
-		PRCurvePath  string
-		ROCCurvePath string
+		Result                    *framework.TrainingResult
+		Config                    *framework.Config
+		GeneratedAt               time.Time
+		PRCurvePath               string
+		ROCCurvePath              string
+		CalibrationScoreDistPath  string
+		CalibrationComparisonPath string
+		CalibrationCurvesPath     string
+		HasCalibration            bool
 	}{
-		Result:       result,
-		Config:       config,
-		GeneratedAt:  time.Now(),
-		PRCurvePath:  "pr_curve.png",
-		ROCCurvePath: "roc_curve.png",
+		Result:                    result,
+		Config:                    config,
+		GeneratedAt:               time.Now(),
+		PRCurvePath:               "pr_curve.png",
+		ROCCurvePath:              "roc_curve.png",
+		CalibrationScoreDistPath:  "calibration_score_distributions.png",
+		CalibrationComparisonPath: "calibration_comparison.png",
+		CalibrationCurvesPath:     "calibration_pr_curves.png",
+		HasCalibration:            result.CalibrationComparison != nil,
 	}
 	
 	return tmpl.Execute(file, data)
@@ -225,6 +260,66 @@ const reportTemplate = `
             <p>ROC-AUC: {{printf "%.4f" .Result.ROCCurve.AUC}}</p>
             {{end}}
         </div>
+        
+        {{if .HasCalibration}}
+        <h2>Calibration Comparison</h2>
+        <div class="info-section">
+            <p><strong>Best Calibration Method:</strong> {{.Result.CalibrationComparison.BestMethod}} ({{.Config.TrainingConfig.OptimizationMetric}} = {{printf "%.4f" .Result.CalibrationComparison.BestScore}})</p>
+        </div>
+        
+        <div class="plot-container">
+            <h3>Score Distributions by Calibration Method</h3>
+            <img src="{{.CalibrationScoreDistPath}}" alt="Score Distributions">
+            <p>Box plots showing score ranges for raw and calibrated scores</p>
+        </div>
+        
+        <div class="plot-container">
+            <h3>Calibration Method Performance</h3>
+            <img src="{{.CalibrationComparisonPath}}" alt="Calibration Comparison">
+            <p>Comparison of PR-AUC, Precision, Recall, and F1-Score across methods</p>
+        </div>
+        
+        <div class="plot-container">
+            <h3>PR Curves by Calibration Method</h3>
+            <img src="{{.CalibrationCurvesPath}}" alt="Calibration PR Curves">
+            <p>Precision-Recall curves for each calibration method</p>
+        </div>
+        
+        <h3>Calibration Methods Comparison</h3>
+        <table>
+            <tr>
+                <th>Method</th>
+                <th>PR-AUC</th>
+                <th>Optimal Threshold</th>
+                <th>Precision</th>
+                <th>Recall</th>
+                <th>F1-Score</th>
+                <th>Score Range</th>
+            </tr>
+            {{range .Result.CalibrationComparison.CalibrationComparisons}}
+            <tr>
+                <td>{{.Method}}</td>
+                <td>{{printf "%.4f" .PRCurve.AUC}}</td>
+                <td>{{printf "%.4f" .OptimalThreshold}}</td>
+                <td>{{printf "%.4f" (index .MetricsAtThreshold "precision")}}</td>
+                <td>{{printf "%.4f" (index .MetricsAtThreshold "recall")}}</td>
+                <td>{{printf "%.4f" (index .MetricsAtThreshold "f1_score")}}</td>
+                <td>[{{printf "%.6f" .ScoreDistribution.Min}}, {{printf "%.6f" .ScoreDistribution.Max}}]</td>
+            </tr>
+            {{end}}
+            {{if .Result.CalibrationComparison.ModelProvidedCalibration}}
+            <tr style="background-color: #e8f4f8;">
+                <td><strong>Model's {{.Result.CalibrationComparison.ModelProvidedCalibration.Method}}</strong></td>
+                <td><strong>{{printf "%.4f" .Result.CalibrationComparison.ModelProvidedCalibration.PRCurve.AUC}}</strong></td>
+                <td><strong>{{printf "%.4f" .Result.CalibrationComparison.ModelProvidedCalibration.OptimalThreshold}}</strong></td>
+                <td><strong>{{printf "%.4f" (index .Result.CalibrationComparison.ModelProvidedCalibration.MetricsAtThreshold "precision")}}</strong></td>
+                <td><strong>{{printf "%.4f" (index .Result.CalibrationComparison.ModelProvidedCalibration.MetricsAtThreshold "recall")}}</strong></td>
+                <td><strong>{{printf "%.4f" (index .Result.CalibrationComparison.ModelProvidedCalibration.MetricsAtThreshold "f1_score")}}</strong></td>
+                <td><strong>[{{printf "%.6f" .Result.CalibrationComparison.ModelProvidedCalibration.ScoreDistribution.Min}}, {{printf "%.6f" .Result.CalibrationComparison.ModelProvidedCalibration.ScoreDistribution.Max}}]</strong></td>
+            </tr>
+            {{end}}
+        </table>
+        {{end}}
         
         {{if .Result.CVResults}}
         <h2>Cross-Validation Results</h2>

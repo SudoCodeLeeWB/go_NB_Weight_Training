@@ -28,7 +28,7 @@ This directory contains example configuration files for the Weighted Naive Bayes
 
 1. **From command line:**
    ```bash
-   go run cmd/train/main.go -data your_data.csv -config config/quick_training.json
+   ./scripts/train.sh models/your_model datasets/your_data.csv config/quick_training.json
    ```
 
 2. **In your code:**

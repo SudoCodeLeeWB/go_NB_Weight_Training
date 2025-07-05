@@ -1,6 +1,5 @@
 {
   "data_config": {
-    "train_path": "",
     "validation_split": 0.2,
     "k_folds": 5,
     "stratified": true,
@@ -32,7 +31,6 @@
   },
   "visualization": {
     "enabled": true,
-    "output_dir": "./output",
     "formats": ["png", "svg"],
     "generate_report": true,
     "dpi": 300
