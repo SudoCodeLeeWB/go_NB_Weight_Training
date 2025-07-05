@@ -113,8 +113,8 @@ type VisualizationConfig struct {
 	// Whether to generate plots
 	Enabled bool `json:"enabled"`
 	
-	// Output directory for plots
-	OutputDir string `json:"output_dir"`
+	// Output directory for plots (deprecated - always uses ./output)
+	OutputDir string `json:"output_dir,omitempty"`
 	
 	// Plot formats ("png", "svg", "pdf")
 	Formats []string `json:"formats"`
@@ -161,8 +161,7 @@ func DefaultConfig() *Config {
 		},
 		Visualization: VisualizationConfig{
 			Enabled:        true,
-			OutputDir:      "./output",
-			Formats:        []string{"png", "svg"},
+			Formats:        []string{"png"},
 			GenerateReport: true,
 			DPI:            300,
 		},

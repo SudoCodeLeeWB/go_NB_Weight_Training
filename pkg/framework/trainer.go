@@ -51,6 +51,9 @@ type TrainingResult struct {
 	TotalEpochs     int
 	TrainingTime    time.Duration
 	Converged       bool
+	
+	// Output directory where results were saved
+	OutputDir       string
 }
 
 // CVFoldResult holds results for a single CV fold
@@ -198,7 +201,9 @@ func (t *Trainer) Train(dataset *data.Dataset, models []Model) (*TrainingResult,
 	
 	// Save results if visualization is enabled
 	if t.config.Visualization.Enabled {
-		resultWriter, err := NewResultWriter(t.config.Visualization.OutputDir)
+		// Always use ./output directory
+		outputDir := "./output"
+		resultWriter, err := NewResultWriter(outputDir)
 		if err != nil {
 			return result, fmt.Errorf("failed to create result writer: %w", err)
 		}
@@ -212,6 +217,9 @@ func (t *Trainer) Train(dataset *data.Dataset, models []Model) (*TrainingResult,
 		if err := resultWriter.SaveVisualizationInfo(result, t.config); err != nil {
 			return result, fmt.Errorf("failed to save visualization info: %w", err)
 		}
+		
+		// Store result directory for later report generation
+		result.OutputDir = resultWriter.GetResultDir()
 		
 		fmt.Printf("\nResults saved to: %s\n", resultWriter.GetResultDir())
 	}

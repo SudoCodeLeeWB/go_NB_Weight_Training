@@ -1,18 +1,17 @@
 # Weighted Naive Bayes Training Framework for Go
 
-A sophisticated ensemble learning framework that optimizes weights for multiple binary classifiers using PR-AUC (Precision-Recall Area Under Curve) optimization. The framework employs gradient-free optimization algorithms and combines predictions using weighted Naive Bayes multiplication.
+A weight optimization framework that finds the best way to combine your binary classifiers. The framework treats your model as a black box and uses gradient-free optimization (Differential Evolution) to find optimal weights that maximize your chosen metric (PR-AUC by default).
 
-## Features
+## Key Features
 
-- **PR-AUC Optimization**: Focuses on precision-recall trade-offs, ideal for imbalanced datasets
-- **Gradient-Free Optimization**: Uses Differential Evolution for robust weight optimization
-- **Multiple Calibration Methods**: Beta, Isotonic, Platt, and None calibration for probability adjustment
-- **Three-Way Data Split**: Prevents data leakage with separate train/calibration/test sets
-- **Flexible Model Interface**: Easy integration of custom binary classifiers
-- **Cross-Validation Support**: K-fold and stratified sampling for robust evaluation
-- **Early Stopping**: Prevents overfitting with patience-based stopping
-- **Comprehensive Visualization**: Generates PR/ROC curves and HTML reports
-- **Production Ready**: Includes model persistence, batch processing, and extensive validation
+- **Black Box Model Treatment**: Framework only cares about weights, not your model internals
+- **Simple Interface**: Implement just 5 methods to use the framework
+- **Gradient-Free Optimization**: Differential Evolution finds optimal weights without gradients
+- **PR-AUC Focus**: Optimizes for precision-recall by default (configurable)
+- **Automatic Output**: Results, visualizations, and reports saved to `./output`
+- **Cross-Validation**: Built-in k-fold and stratified sampling
+- **Early Stopping**: Prevents overfitting automatically
+- **HTML Reports**: Automatic generation of interactive reports with graphs
 
 ## Installation
 
@@ -30,56 +29,61 @@ go build -o train_ensemble cmd/train/main.go
 
 ## Quick Start
 
-### 1. Basic Training
+### 1. Implement the AggregatedModel Interface
 
-```bash
-# Train with default configuration
-go run cmd/train/main.go -data your_data.csv
-
-# Or use the built binary
-./train_ensemble -data your_data.csv
+```go
+type AggregatedModel interface {
+    Predict(samples [][]float64) ([]float64, error)
+    GetWeights() []float64
+    SetWeights(weights []float64) error
+    GetNumModels() int
+    GetModelNames() []string
+}
 ```
 
-### 2. Advanced Training with Configuration
+### 2. Train Your Model
 
-```bash
-# Use production configuration
-go run cmd/train/main.go \
-  -data your_data.csv \
-  -config config/production_config.json \
-  -output ./results
+```go
+// Your implementation
+ensemble := &MyCustomEnsemble{...}
+
+// Train with framework
+result, err := framework.TrainAggregatedModel(dataset, ensemble, config)
+
+// Your model now has optimized weights!
 ```
 
 ### 3. Run Examples
 
 ```bash
-# Simple example
+# See how to implement AggregatedModel
+go run examples/custom_aggregated_model/main.go
+
+# Simple example with mock models
 go run examples/simple/main.go
 
-# Advanced example with cross-validation
-go run examples/advanced/main.go
-
-# Production-ready example
-go run examples/production/main.go
-
-# Run all demos
+# Run interactive demo
 ./demo/run_demo.sh
 ```
 
+## How It Works
+
+1. **You Control Everything**: The framework doesn't know or care about your model structure
+2. **Weight Optimization**: Framework tests different weight combinations to maximize performance
+3. **Black Box Approach**: Your `Predict()` method can do anything - Naive Bayes, voting, stacking, etc.
+
 ## Data Format
 
-The framework expects CSV data with features and binary labels:
+Your data format is up to you! The framework just needs:
+- Binary labels (0 or 1)
+- Features that your model understands
 
+Example CSV:
 ```csv
 feature1,feature2,feature3,label
 0.8,0.7,0.9,1
 0.2,0.3,0.1,0
 ```
-
-**Important**: 
-- Features are raw input features, NOT classifier predictions
-- Labels must be binary (0 or 1)
-- Models implementing the Model interface process these features
 
 ## Configuration
 
@@ -199,56 +203,57 @@ go test ./test/integration/... -v
 ./scripts/test_framework.sh
 ```
 
-## CLI Usage
-
-```bash
-# Basic usage
-./train_ensemble -data data.csv
-
-# Full options
-./train_ensemble \
-  -data data.csv \
-  -config config.json \
-  -output results/ \
-  -verbose
-
-# Flags:
-#   -data    Path to training data (required)
-#   -config  Path to configuration file
-#   -output  Output directory (default: ./output)
-#   -verbose Enable verbose logging (default: true)
-```
-
-## Output
-
-The framework generates:
-- `ensemble_weights.json`: Trained model weights
-- `training_results.json`: Detailed training metrics
-- `training_summary.txt`: Human-readable summary
-- `pr_curve.png`: Precision-Recall curve
-- `roc_curve.png`: ROC curve
-- `report.html`: Comprehensive HTML report
-
-## Creating Custom Models
-
-Implement the `Model` interface:
+## Example Implementation
 
 ```go
-type Model interface {
-    Predict(features []float64) (float64, error)
-    GetName() string
+type MySpamEnsemble struct {
+    spamDetector  *MySpamDetector  // Your models
+    neuralNet     *MyNeuralNet     // Framework doesn't
+    randomForest  *MyRandomForest  // see these
+    weights       []float64
 }
 
-// Optional extended interface
-type ExtendedModel interface {
-    Model
-    Train(X [][]float64, y []int) error
-    Save(path string) error
-    Load(path string) error
+func (e *MySpamEnsemble) Predict(samples [][]float64) ([]float64, error) {
+    // Get predictions from each model
+    spam_conf := e.spamDetector.Predict(samples)
+    nn_conf := e.neuralNet.Predict(samples)
+    rf_conf := e.randomForest.Predict(samples)
+    
+    // Combine using weights (Naive Bayes multiplication)
+    results := make([]float64, len(samples))
+    for i := range results {
+        results[i] = math.Pow(spam_conf[i], e.weights[0]) *
+                     math.Pow(nn_conf[i], e.weights[1]) *
+                     math.Pow(rf_conf[i], e.weights[2])
+    }
+    return results, nil
 }
+
+// Implement other 4 methods...
 ```
 
-See `models/example_model.go` for a template.
+## Output Structure
+
+All outputs are automatically saved to `./output/results_YYYY-MM-DD_HH-MM-SS/`:
+
+```
+./output/
+└── results_2025-07-05_14-30-45/
+    ├── best_weights.json        # Optimized weights for your models
+    ├── training_result.json     # Complete training metrics
+    ├── summary.txt              # Human-readable summary
+    ├── config.json              # Configuration used
+    ├── report.html             # Interactive HTML report
+    ├── pr_curve.png            # Precision-Recall curve
+    └── roc_curve.png           # ROC curve
+```
+
+## Why Use This Framework?
+
+1. **You Already Have Models**: Don't retrain - optimize how to combine them
+2. **Black Box Approach**: Use models from any source (sklearn, TensorFlow, custom)
+3. **Automatic Weight Optimization**: Let the framework find the best combination
+4. **Production Ready**: Get optimized weights you can deploy immediately
 
 ## Production Considerations
 

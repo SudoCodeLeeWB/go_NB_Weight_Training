@@ -51,24 +51,31 @@ go run demo.go
 ### Core Structure
 ```
 pkg/
-├── framework/      # Core trainer, config, model interfaces
+├── framework/      # Core trainer, config, AggregatedModel interface
 ├── optimizer/      # Differential Evolution implementation
 ├── metrics/        # PR-AUC, ROC-AUC calculations
 ├── data/          # Dataset loading, stratified splitting
-├── ensemble/      # Ensemble model implementation
 └── visualization/ # Plot generation with gonum/plot
 ```
 
-### Key Interfaces
-- `framework.Model`: Core interface for any classifier (`Predict()`, `GetName()`)
-- `optimizer.Optimizer`: Interface for optimization algorithms
-- Models must return probabilities (0-1) for binary classification
+### Key Interface - AggregatedModel
+The framework only knows about ONE interface:
+```go
+type AggregatedModel interface {
+    Predict(samples [][]float64) ([]float64, error)
+    GetWeights() []float64
+    SetWeights(weights []float64) error
+    GetNumModels() int
+    GetModelNames() []string  // Optional, for reporting
+}
+```
 
-### Design Patterns
-- **Gradient-Free Optimization**: Uses Differential Evolution instead of gradient descent
-- **Naive Bayes Aggregation**: Combines predictions using `∏(prediction_i ^ weight_i)`
-- **PR-AUC Focus**: Optimizes for Precision-Recall AUC without fixed thresholds
-- **Modular Design**: Clean separation between data, models, optimization, and visualization
+### Design Philosophy
+- **Black Box Approach**: Framework treats your model as a black box
+- **Weight Optimization Only**: Framework ONLY optimizes weights, nothing else
+- **User Freedom**: You implement aggregation however you want
+- **Gradient-Free Optimization**: Uses Differential Evolution
+- **PR-AUC Focus**: Optimizes for Precision-Recall AUC by default
 
 ## Current State & Known Issues
 
@@ -85,17 +92,39 @@ pkg/
 4. **Threshold Optimization**: PR-specific metrics (precision, MCC, PR-distance)
 5. **Weight Control**: Option to prevent model exclusion (enforce_non_zero)
 
+## How It Works
+
+1. **You Implement AggregatedModel**: Create your ensemble with any internal structure
+2. **Framework Optimizes Weights**: Uses Differential Evolution to find best weights
+3. **You Control Aggregation**: Implement Predict() however you want (Naive Bayes, voting, etc.)
+
+Example:
+```go
+type MyEnsemble struct {
+    // Your internal models - framework doesn't see these
+    model1, model2, model3 interface{}
+    weights []float64
+}
+
+func (m *MyEnsemble) Predict(samples [][]float64) ([]float64, error) {
+    // YOUR aggregation logic (e.g., weighted Naive Bayes)
+    // Get predictions from your models
+    // Combine using weights: ∏(prediction_i ^ weight_i)
+}
+
+// Train
+result, _ := framework.TrainAggregatedModel(dataset, myEnsemble, config)
+```
+
 ## Data Requirements
-- **IMPORTANT**: Input features are RAW features, NOT classifier predictions
-- The framework trains models that implement the Model interface
 - Labels must be binary (0 or 1)
+- Features: Whatever your internal models expect
 - Example format:
   ```csv
   feature1,feature2,feature3,label
   0.8,0.7,0.9,1
   0.2,0.3,0.1,0
   ```
-- Models process raw features and return probabilities [0,1]
 
 ## Configuration
 

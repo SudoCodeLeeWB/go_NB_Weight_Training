@@ -9,7 +9,6 @@ import (
 
 	"github.com/iwonbin/go-nb-weight-training/pkg/data"
 	"github.com/iwonbin/go-nb-weight-training/pkg/framework"
-	"github.com/iwonbin/go-nb-weight-training/pkg/visualization"
 )
 
 // UserModel represents a custom user-defined model
@@ -99,8 +98,7 @@ func main() {
 		},
 		Visualization: framework.VisualizationConfig{
 			Enabled:        true,
-			OutputDir:      "./results",
-			Formats:        []string{"png", "svg"},
+			Formats:        []string{"png"},
 			GenerateReport: true,
 			DPI:            300,
 		},
@@ -170,45 +168,8 @@ func main() {
 			models[i].GetName(), weight, relativeImportance)
 	}
 
-	// Step 7: Generate comprehensive report
-	if config.Visualization.Enabled {
-		fmt.Println("\nGenerating comprehensive visualization report...")
-		
-		// Create output directory
-		os.MkdirAll(config.Visualization.OutputDir, 0755)
-		
-		reporter := visualization.NewReportGenerator(config.Visualization.OutputDir)
-		if err := reporter.GenerateReport(result, config); err != nil {
-			log.Printf("Failed to generate report: %v", err)
-		} else {
-			fmt.Printf("Report saved to: %s/report.html\n", config.Visualization.OutputDir)
-		}
-		
-		// Additional custom plots
-		plotter := visualization.NewPlotter(config.Visualization.OutputDir, float64(config.Visualization.DPI))
-		
-		// Plot weight distribution
-		modelNames := make([]string, len(models))
-		for i, m := range models {
-			modelNames[i] = m.GetName()
-		}
-		
-		if err := plotter.PlotWeightDistribution(result.BestWeights, modelNames, "weight_distribution.png"); err != nil {
-			log.Printf("Failed to plot weight distribution: %v", err)
-		}
-		
-		// Plot metric history if available
-		if history, ok := result.MetricHistory["pr_auc"]; ok && len(history) > 0 {
-			epochs := make([]float64, len(history))
-			for i := range epochs {
-				epochs[i] = float64(i)
-			}
-			
-			if err := plotter.PlotMetricHistory(epochs, history, "PR-AUC", "pr_auc_history.png"); err != nil {
-				log.Printf("Failed to plot PR-AUC history: %v", err)
-			}
-		}
-	}
+	// Step 7: Reports are automatically generated in ./output directory
+	fmt.Println("\nVisualization report and plots have been automatically generated.")
 
 	// Step 8: Save the trained ensemble for production use
 	if err := saveEnsemble(result.BestWeights, models, "ensemble_model.json"); err != nil {

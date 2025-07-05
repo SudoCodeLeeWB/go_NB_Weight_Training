@@ -16,7 +16,6 @@ func main() {
 	var (
 		dataPath   = flag.String("data", "", "Path to training data (CSV or JSON)")
 		configPath = flag.String("config", "", "Path to configuration file (optional)")
-		outputDir  = flag.String("output", "./output", "Output directory for results")
 		verbose    = flag.Bool("verbose", true, "Enable verbose logging")
 	)
 	flag.Parse()
@@ -41,10 +40,9 @@ func main() {
 
 	// Override config with command line flags
 	config.TrainingConfig.Verbose = *verbose
-	config.Visualization.OutputDir = *outputDir
-
-	// Create output directory
-	if err := os.MkdirAll(*outputDir, 0755); err != nil {
+	
+	// Output directory is always ./output
+	if err := os.MkdirAll("./output", 0755); err != nil {
 		log.Fatalf("Failed to create output directory: %v", err)
 	}
 
